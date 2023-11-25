@@ -1,4 +1,5 @@
 import json
+from http.client import RemoteDisconnected
 
 import requests
 from rest_framework import permissions
@@ -14,6 +15,7 @@ from django.core.exceptions import ObjectDoesNotExist
 
 from republic_os.cookie_token_auth import CookieTokenAuthentication
 from republic_os.devices.models import Device, DeviceConnection
+from republic_os.public_auth_bypass import SkipAuth
 
 
 @api_view(['POST'])
@@ -23,16 +25,17 @@ def connect_vpn(request):
     })
 
 
-@api_view(['POST'])
-@permission_classes([permissions.AllowAny])
+@api_view(['GET'])
+@permission_classes([permissions.AllowAny,])
 def add_device(request):
-    if not request.data['qr_code_key'] \
-            or not request.data['uuid']:
+    print(request.GET.get('qr_code_key'))
+    if not request.GET.get('qr_code_key') and not request.GET.get('uuid'):
+        print('UH OH')
         return Response({
             'message': 'Invalid request',
         }, status=400)
 
-    device = Device.objects.filter(qr_code_key=request.data['qr_code_key']).first()
+    device = Device.objects.filter(qr_code_key=request.GET.get('qr_code_key')).first()
 
     if not device:
         return Response({
@@ -66,50 +69,62 @@ def add_device(request):
             'message': 'Device already connected',
         }, status=200)
 
-    device.uuid = request.data['uuid']
-    device.name_on_device = request.data['name']
-    device.manufacturer = request.data['manufacturer']
-    device.brand = request.data['brand']
-    device.system_name = request.data['system_name']
-    device.system_version = request.data['system_version']
-    device.total_disk_capacity = request.data['total_disk_capacity']
-    device.total_memory = request.data['total_memory']
-    device.is_tablet = request.data['is_tablet']
-    device.is_mobile = request.data['is_mobile']
-    device.is_desktop = request.data['is_desktop']
-    device.save()
+    print(request)
+
+    # device.uuid = request.data['uuid']
+    # device.name_on_device = request.data['name']
+    # device.manufacturer = request.data['manufacturer']
+    # device.brand = request.data['brand']
+    # device.system_name = request.data['system_name']
+    # device.system_version = request.data['system_version']
+    # device.total_disk_capacity = request.data['total_disk_capacity']
+    # device.total_memory = request.data['total_memory']
+    # device.is_tablet = request.data['is_tablet']
+    # device.is_mobile = request.data['is_mobile']
+    # device.is_desktop = request.data['is_desktop']
+    # device.save()
 
     # Get the ZeroTier Network Id for the device to connect to
-    headers = {
-        'Content-Type': 'application/json',
-        'X-ZT1-AUTH': os.environ['ZEROTIER_API_TOKEN']
-    }
-
-    base_url = 'http://republic_os_local_zerotier:9993/controller/network'
-
-    response = requests.get(base_url, headers=headers, params={})
-
-    if response.status_code != 200:
-        return Response({
-            'message': 'ZeroTier API error',
-        }, status=500)
-
-    list_of_network_ids = response.json()
-
-    print(list_of_network_ids)
-
-    if len(list_of_network_ids) == 0:
-        return Response({
-            'message': 'No ZeroTier networks found',
-        }, status=500)
-
-    zerotier_network_id = list_of_network_ids[0]
-
+    # headers = {
+    #     'Content-Type': 'application/json',
+    #     'X-ZT1-AUTH': os.environ['ZEROTIER_API_TOKEN']
+    # }
+    #
+    # base_url = 'http://republic-os-local-zerotier:9993/controller/network'
+    #
+    # try:
+    #
+    #     response = requests.get(base_url, headers=headers, params={})
+    #
+    # except RemoteDisconnected:
+    #     return Response({
+    #         'message': 'ZeroTier API error',
+    #     }, status=500)
+    #
+    # if response.status_code != 200:
+    #     return Response({
+    #         'message': 'ZeroTier API error',
+    #     }, status=500)
+    #
+    # list_of_network_ids = response.json()
+    #
+    # if len(list_of_network_ids) == 0:
+    #     return Response({
+    #         'message': 'No ZeroTier networks found',
+    #     }, status=500)
+    #
+    # zerotier_network_id = list_of_network_ids[0]
+    #
+    # DeviceConnection.objects.get_or_create(
+    #     device=device,
+    #     network_id=zerotier_network_id,
+    # )
+    #
     token, _ = Token.objects.get_or_create(user=device.user)
 
     response = Response({
         'message': 'ok',
-        'zerotier_network_id': zerotier_network_id,
+        # 'zerotier_network_id': zerotier_network_id,
         'token': token.key,
     })
 
@@ -168,7 +183,8 @@ def generate_qr_code(request):
     # Add it to the URL as a parameter
     qr_code_data = {
         'qr_code_key': qr_code_key,
-        'api_url': f'{os.environ["RE_PUBLIC_DJANGO_URL"]}'
+        'api_url': f'{os.environ["RE_PUBLIC_EXTERNAL_API_URL"]}/_/api/devices/add-device/?qr_code_key={qr_code_key}',
+
     }
 
     try:

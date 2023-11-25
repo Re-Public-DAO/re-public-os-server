@@ -35,8 +35,13 @@ ENV BUILD_ENV ${BUILD_ENVIRONMENT}
 
 WORKDIR ${APP_HOME}
 
-RUN addgroup --system django \
-    && adduser --system --ingroup django django
+# Map the host user to the django user in the container for
+# proper file permissions on volumes.
+ARG HOST_UID
+ARG HOST_GID
+
+RUN addgroup --gid $HOST_GID django && \
+    adduser --uid $HOST_UID --gid $HOST_GID --system django
 
 
 # Install required system dependencies

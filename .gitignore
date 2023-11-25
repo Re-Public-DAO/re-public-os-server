@@ -334,3 +334,7 @@ republic_os/media/
 .env
 .envs/*
 !.envs/.local/
+
+
+# Installed connectors
+republic_os/connectors/installed/*

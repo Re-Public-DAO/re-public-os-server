@@ -1,18 +1,26 @@
 from django.urls import path
 
 from republic_os.connectors.views import (
-    connect_service,
     receive_oauth_data,
-    get_connectors,
     test,
     test_ingest,
+    ConnectorListView,
+    ConnectorView,
+    get_authenticated_connectors_list,
+    start_sync,
+    get_commits,
+    get_connector_syncs,
 )
 
 app_name = "connectors"
 urlpatterns = [
-    path("", view=get_connectors, name="get_connectors"),
+    path("", view=ConnectorListView.as_view(), name="get_connectors"),
+    path("authenticated/", view=get_authenticated_connectors_list, name="get_authenticated_connectors"),
     path("test/", view=test, name="test"),
     path("test-ingest/", view=test_ingest, name="test_ingest"),
-    path("<str:connector_id>/", view=connect_service, name="connect_service"),
-    path("<str:connector_id>/oauth/", view=receive_oauth_data, name="receive_oauth_data"),
+    path("<str:republic_id>/", view=ConnectorView.as_view(), name="get_connector"),
+    path("<str:republic_id>/oauth/", view=receive_oauth_data, name="receive_oauth_data"),
+    path("<str:republic_id>/sync/", view=start_sync, name="start_sync"),
+    path("<str:republic_id>/commits/", view=get_commits, name="get_commits"),
+    path("<str:republic_id>/history/", view=get_connector_syncs, name="get_connector_syncs"),
 ]

@@ -4,7 +4,7 @@ from rest_framework.routers import DefaultRouter, SimpleRouter
 from republic_os.users.api.views import UserViewSet
 from republic_os.apps.api.views import AppInstallViewSet
 from republic_os.devices.api.views import DeviceViewSet
-from republic_os.connectors.api.views import OAuthStateViewSet
+from republic_os.oauth.api.views import OAuthStateViewSet
 
 if settings.DEBUG:
     router = DefaultRouter()

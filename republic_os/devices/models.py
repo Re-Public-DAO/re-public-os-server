@@ -28,11 +28,11 @@ class Device(RePublicModel):
 
 class DeviceConnection(RePublicModel):
 
-    network_id = models.CharField(max_length=255)
-    node_id = models.CharField(max_length=255)
-    ip_address = models.CharField(max_length=255)
+    network_id = models.CharField(max_length=255, null=True)
+    node_id = models.CharField(max_length=255, null=True)
+    ip_address = models.CharField(max_length=255, null=True)
 
-    device = models.OneToOneField(Device, on_delete=models.CASCADE, related_name='connection')
+    device = models.OneToOneField(Device, on_delete=models.CASCADE, related_name='connection', null=True)
 
     def __str__(self):
         return self.device.name_on_device or self.device.name_in_os or self.device.uuid or self.device.qr_code_key

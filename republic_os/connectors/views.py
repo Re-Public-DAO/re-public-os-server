@@ -2,108 +2,43 @@ from rest_framework.decorators import api_view, permission_classes, authenticati
 from rest_framework.response import Response
 from rest_framework.permissions import BasePermission, AllowAny
 from rest_framework import status
+from rest_framework.views import APIView
+from git import Repo
 
-from republic_os.connectors.models import OAuthState, Connector
+
+from republic_os.connectors.models import Connector, ConnectorSync
+from republic_os.oauth.models import OAuthState
 import secrets
 import os
 import requests
-
+from republic_os.connectors.tasks import sync_connector_data
+from republic_os.connectors.utils import get_connector_action, get_raw_data_directory
 from datetime import datetime
 
 import json
-import hashlib
 
 from republic_os.cookie_token_auth import CookieTokenAuthentication
+from republic_os.connectors.serializers import ConnectorSerializer, ConnectorSyncSerializer
 
 
 class RePublicServerAccess(BasePermission):
 
     def has_permission(self, request, view):
+        print('in has_permission')
         auth_header = request.headers.get('X-Re-Public-Auth')
         if auth_header is None:
+            print('no auth header')
             return False
 
         token_type, token_value = auth_header.split(' ')
 
         if token_type != 'Token':
+            print('token type is not Token')
             return False
 
+        print('has permission')
+
         return True
-
-
-def file_and_data_are_equal(file_path, data):
-    file_hash_algorithm = hashlib.sha256()
-    data_hash_algorithm = hashlib.sha256()
-
-    data_hash_algorithm.update(data)
-
-    with open(file_path, 'rb') as file:
-        while True:
-            data = file.read(4096)
-            if not data:
-                break
-            file_hash_algorithm.update(data)
-
-    file_hash = file_hash_algorithm.hexdigest()
-    data_hash = data_hash_algorithm.hexdigest()
-
-    print(f'file_hash: {file_hash}')
-    print(f'data_hash: {data_hash}')
-
-    return file_hash == data_hash
-
-
-def get_data_from_spotify(spotify_oauth, endpoint):
-
-    headers = {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer ' + spotify_oauth.access_token,
-    }
-
-    res = requests.get(f'https://api.spotify.com/v1{endpoint}', headers=headers)
-
-    try:
-
-        res_json = res.json()
-
-        # TODO: Handle pagination/offsets
-
-    except Exception as e:
-        print(res)
-        print(e)
-        res_json = {}
-
-    if res.status_code == 401 and res_json['error'] and res_json['error']['message'] == 'The access token expired':
-
-        body = {
-            'refreshToken': spotify_oauth.refresh_token,
-        }
-
-        print(body)
-
-        refresh_headers = {
-            'Content-Type': 'application/json',
-        }
-
-        refresh_res = requests.post(f'{os.environ["RE_PUBLIC_NEXTJS_URL"]}/api/spotify/oauth/refresh/', json=body, headers=refresh_headers)
-
-        print(refresh_res)
-
-        refresh_json = refresh_res.json()
-
-        print(refresh_json)
-
-        spotify_oauth.access_token = refresh_json['access_token']
-
-        spotify_oauth.save()
-
-        headers['Authorization'] = 'Bearer ' + refresh_json['access_token']
-
-        res2 = requests.get('https://api.spotify.com/v1/me', headers=headers)
-
-        res_json = res2.json()
-
-    return res_json
 
 
 @api_view(['GET'])
@@ -431,28 +366,50 @@ def connect_service(request, connector_id):
 
 @api_view(['POST'])
 @permission_classes([AllowAny,])
-def receive_oauth_data(request, connector_id):
+def receive_oauth_data(request, republic_id):
 
     print('receive_oauth_data')
 
-    print(f'connector_id: {connector_id}')
+    print(f'republic_id: {republic_id}')
+
+    print(request.META)
+
+    if 'X-Re-Public-Auth' not in request.headers:
+        return Response({
+            'message': 'Unauthorized',
+        }, status=status.HTTP_401_UNAUTHORIZED)
 
     auth_header = request.headers.get('X-Re-Public-Auth')
 
-    token_type, token_value = auth_header.split(' ')
+    try:
+
+        token_type, token_value = auth_header.split(' ')
+
+    except Exception as e:
+        print(e)
+        return Response({
+            'message': 'Unauthorized',
+        }, status=status.HTTP_401_UNAUTHORIZED)
+
+    if token_value != os.environ.get('RE_PUBLIC_EXTERNAL_API_TOKEN'):
+        return Response({
+            'message': 'Unauthorized',
+        }, status=status.HTTP_401_UNAUTHORIZED)
 
     oauth_state = OAuthState.objects.filter(
-        connector_id=connector_id,
-        # re_public_store_token=token_value,
+        connector__republic_id=republic_id,
+        re_public_store_token=token_value,
     ).first()
 
     print(f'token_type: {token_type}')
     print(f'token_value: {token_value}')
 
     if oauth_state is None:
-        return Response({
-            'message': 'Unauthorized',
-        }, status=status.HTTP_401_UNAUTHORIZED)
+        connector = Connector.objects.filter(republic_id=republic_id).first()
+        oauth_state = OAuthState.objects.create(
+            connector=connector,
+            re_public_store_token=token_value,
+        )
 
     print('request.data')
     print(request.data)
@@ -470,11 +427,142 @@ def receive_oauth_data(request, connector_id):
     })
 
 
-@api_view(['GET'])
-@authentication_classes([CookieTokenAuthentication,])
-def get_connectors(request):
+class ConnectorListView(APIView):
+    authentication_classes([CookieTokenAuthentication,])
+    permission_classes([RePublicServerAccess,])
 
-    return Response({
-        'message': 'ok',
-        'connectors': Connector.objects.all(),
-    })
+    def get(self, request, *args, **kwargs):
+        connectors = Connector.objects.all()
+        serializer = ConnectorSerializer(connectors, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+class ConnectorView(APIView):
+    authentication_classes([CookieTokenAuthentication,])
+    permission_classes([RePublicServerAccess,])
+
+    def get(self, request, *args, **kwargs):
+        republic_id = kwargs.get('republic_id')
+        connector = Connector.objects.filter(republic_id=republic_id).first()
+        serializer = ConnectorSerializer(connector)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    def post(self, request, *args, **kwargs):
+        republic_id = kwargs.get('republic_id')
+        connector = Connector.objects.filter(republic_id=republic_id).first()
+
+        if not connector:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+
+        action = request.data.get('action')
+
+        if not action:
+            return Response(status=status.HTTP_400_BAD_REQUEST)
+
+        connector_action = get_connector_action(connector, action)
+
+        print(f'action: {action}')
+
+        return Response(status=status.HTTP_200_OK)
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny,])
+def get_authenticated_connectors_list(request,):
+    authenticated_connectors_list = Connector.objects.filter(oauths__isnull=False).distinct().values_list('republic_id', flat=True)
+
+    print(authenticated_connectors_list)
+
+    return Response(status=status.HTTP_200_OK, data=authenticated_connectors_list)
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny,])
+def start_sync(request, republic_id):
+
+    print('start_sync')
+
+    oauth = OAuthState.objects.filter(connector__republic_id=republic_id).first()
+
+    print(f'oauth: {oauth}')
+
+    if not oauth:
+        return Response(status=status.HTTP_404_NOT_FOUND)
+
+    sync_tracker = (ConnectorSync.objects.filter(
+        connector__republic_id=republic_id,
+    ).exclude(
+        status='Done with task'
+    ).first())
+
+    # if sync_tracker and sync_tracker.task_id:
+    #     AsyncResult.revoke(sync_tracker.task_id, terminate=True)
+
+    if not sync_tracker:
+        sync_tracker = ConnectorSync.objects.create(connector=oauth.connector)
+
+    print(f'sync_tracker: {sync_tracker}')
+
+    sync_tracker.status = 'Sync started'
+    sync_tracker.oauth_state = oauth
+
+    sync_tracker.save()
+
+    result = sync_connector_data.delay(republic_id)
+
+    print(f'result.task_id: {result.task_id}')
+
+    sync_tracker.task_id = result.task_id
+
+    sync_tracker.save()
+
+    return Response(
+        status=status.HTTP_200_OK,
+        data={
+            'task_id': result.task_id,
+        }
+    )
+
+
+def get_latest_commits(repo_path, max_count=5):
+    repo = Repo(repo_path)
+    commits = []
+    for commit in repo.iter_commits(max_count=max_count):
+        commits.append({
+            'id': commit.hexsha,
+            'author': commit.author.name,
+            'message': commit.message.strip(),
+            'date': commit.authored_datetime.isoformat()
+        })
+    return commits
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny,])
+def get_commits(request, republic_id):
+    repo_path = get_raw_data_directory(republic_id)
+    try:
+        commits = get_latest_commits(repo_path)
+        return Response(commits)
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny,])
+def get_connector_syncs(request, republic_id):
+    syncs = ConnectorSync.objects.filter(connector__republic_id=republic_id).order_by('-created_at')
+    serializer = ConnectorSyncSerializer(syncs, many=True)
+
+    events = [
+        {
+            'action': 'sync',
+            'actor' : republic_id,
+            'taskId': sync['task_id'],
+            'result': sync['error'] or sync['status'],
+            'timestamp': sync['created_at'],
+        }
+        for sync in serializer.data
+    ]
+
+    return Response(events, status=status.HTTP_200_OK)

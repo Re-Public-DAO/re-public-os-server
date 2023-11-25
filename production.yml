@@ -1,76 +1,97 @@
 version: '3'
 
 volumes:
-  production_postgres_data: {}
-  production_postgres_data_backups: {}
-  production_traefik: {}
-  production_django_media: {}
+  republic-os-production-postgres_data: {}
+  republic-os-production-postgres_data_backups: {}
+  republic-os-production-raw_data: {}
+  republic-os-production-django_static: {}
+  republic-os-production-zerotier_data: {}
+  republic-os-production-web: {}
 
 services:
   django: &django
     build:
       context: .
       dockerfile: ./compose/production/django/Dockerfile
-
-    image: republic_os_production_django
-    volumes:
-      - production_django_media:/app/republic_os/media
+      args:
+        HOST_UID: $HOST_UID
+        HOST_GID: $HOST_GID
+    user: "${HOST_UID}:${HOST_GID}"
+    image: republic-os-production-django
+    container_name: republic-os-production-django
     depends_on:
       - postgres
       - redis
+    volumes:
+      - .:/app:z
+      - /var/run/docker.sock:/var/run/docker.sock
+      - republic-os-production-raw_data:/re_public_os_raw_data
+      - republic-os-production-zerotier_data:/var/lib/zerotier-one
+      - ./staticfiles:/staticfiles
     env_file:
       - ./.envs/.production/.django
       - ./.envs/.production/.postgres
+      - ./.envs/.production/.republic_os
+      - ./.env
+    environment:
+      - HOST_UID=${HOST_UID}
+      - HOST_GID=${HOST_GID}
     command: /start
+    networks:
+      - re_public_os
 
   postgres:
     build:
       context: .
       dockerfile: ./compose/production/postgres/Dockerfile
     image: republic_os_production_postgres
+    container_name: republic-os-production-postgres
     volumes:
-      - production_postgres_data:/var/lib/postgresql/data
-      - production_postgres_data_backups:/backups
+      - republic-os-production-postgres_data:/var/lib/postgresql/data
+      - republic-os-production-postgres_data_backups:/backups
     env_file:
       - ./.envs/.production/.postgres
-
-  traefik:
-    build:
-      context: .
-      dockerfile: ./compose/production/traefik/Dockerfile
-    image: republic_os_production_traefik
-    depends_on:
-      - django
-    volumes:
-      - production_traefik:/etc/traefik/acme
-    ports:
-      - "0.0.0.0:80:80"
-      - "0.0.0.0:443:443"
-      - "0.0.0.0:5555:5555"
-
+    networks:
+      - re_public_os
+  
   redis:
     image: redis:6
+    container_name: republic-os-production-redis
+    networks:
+      - re_public_os
 
   celeryworker:
     <<: *django
-    image: republic_os_production_celeryworker
+    image: republic-os-production-celeryworker
+    container_name: republic-os-production-celeryworker
+    depends_on:
+      - redis
+      - postgres
+    ports: [ ]
     command: /start-celeryworker
+    networks:
+      - re_public_os
 
   celerybeat:
     <<: *django
-    image: republic_os_production_celerybeat
+    image: republic-os-production-celerybeat
+    container_name: republic-os-production-celerybeat
+    depends_on:
+      - redis
+      - postgres
+    ports: []
     command: /start-celerybeat
+    networks:
+      - re_public_os
 
   flower:
     <<: *django
-    image: republic_os_production_flower
+    image: republic-os-production-flower
+    container_name: republic-os-production-flower
     command: /start-flower
-  nginx:
-    build:
-      context: .
-      dockerfile: ./compose/production/nginx/Dockerfile
-    image: republic_os_local_nginx
-    depends_on:
-      - django
-    volumes:
-      - production_django_media:/usr/share/nginx/media:ro
+    networks:
+      - re_public_os
+
+networks:
+  re_public_os:
+    external: true

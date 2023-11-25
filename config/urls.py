@@ -31,7 +31,8 @@ urlpatterns += [
     path("api/network/", include("republic_os.network.urls", namespace="network")),
     path("api/connectors/", include("republic_os.connectors.urls", namespace="connectors")),
     path("api/devices/", include("republic_os.devices.urls", namespace="devices")),
-    # path("api/apps/", include("republic_os.apps.urls", namespace="apps")),
+    path("api/oauth/", include("republic_os.oauth.urls", namespace="oauth")),
+    path("api/apps/", include("republic_os.apps.urls", namespace="apps")),
     # API base url
     path("api/", include("config.api_router")),
     # DRF auth token

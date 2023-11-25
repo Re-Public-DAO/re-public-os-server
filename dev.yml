@@ -1,50 +1,53 @@
 version: '3'
 
 volumes:
-  republic_os_local_postgres_data: {}
-  republic_os_local_postgres_data_backups: {}
-#  republic_os_local_perkeep_data: {}
-#  republic_os_local_dolt: {}
-  republic_os_local_raw_data: {}
-  republic_os_local_metabase_db: {}
-  republic_os_local_zerotier_data: {}
+  republic-os-local-postgres_data: {}
+  republic-os-local-postgres_data_backups: {}
+#  republic-os-local-perkeep_data: {}
+#  republic-os-local-dolt: {}
+  republic-os-local-raw_data: {}
+  republic-os-local-metabase_db: {}
+  republic-os-local-django_static: {}
+#  republic-os-local-zerotier_data: {}
+  republic-os-local-web: {}
+  republic-os-local-hasura: {}
 
 services:
   django: &django
     build:
       context: .
       dockerfile: ./compose/local/django/Dockerfile
-    image: republic_os_local_django
-    container_name: republic_os_local_django
+    image: republic-os-local-django
+    container_name: republic-os-local-django
     depends_on:
       - postgres
       - redis
     volumes:
       - .:/app:z
       - /var/run/docker.sock:/var/run/docker.sock
-#      - republic_os_local_perkeep_data:/perkeep
-      - republic_os_local_raw_data:/re_public_os_raw_data
-      - republic_os_local_zerotier_data:/var/lib/zerotier-one
+#      - republic-os-local-perkeep_data:/perkeep
+      - republic-os-local-raw_data:/re_public_os_raw_data
+#      - republic-os-local-zerotier_data:/var/lib/zerotier-one
+      - republic-os-local-django_static:/app/staticfiles
     env_file:
       - ./.envs/.local/.django
       - ./.envs/.local/.postgres
       - ./.envs/.local/.republic_os
       - ./.env
-    ports:
-      - "8000:8000"
     command: /start
     networks:
       - re_public_os
+      - re_public_server
 
   postgres:
     build:
       context: .
       dockerfile: ./compose/production/postgres/Dockerfile
     image: republic_os_production_postgres
-    container_name: republic_os_local_postgres
+    container_name: republic-os-local-postgres
     volumes:
-      - republic_os_local_postgres_data:/var/lib/postgresql/data
-      - republic_os_local_postgres_data_backups:/backups
+      - republic-os-local-postgres_data:/var/lib/postgresql/data
+      - republic-os-local-postgres_data_backups:/backups
     env_file:
       - ./.envs/.local/.postgres
     ports:
@@ -53,8 +56,8 @@ services:
       - re_public_os
 
   docs:
-    image: republic_os_local_docs
-    container_name: republic_os_local_docs
+    image: republic-os-local-docs
+    container_name: republic-os-local-docs
     build:
       context: .
       dockerfile: ./compose/local/docs/Dockerfile
@@ -72,46 +75,78 @@ services:
 
   redis:
     image: redis:6
-    container_name: republic_os_local_redis
+    container_name: republic-os-local-redis
     networks:
       - re_public_os
 
   celeryworker:
     <<: *django
-    image: republic_os_local_celeryworker
-    container_name: republic_os_local_celeryworker
+    image: republic-os-local-celeryworker
+    container_name: republic-os-local-celeryworker
     depends_on:
       - redis
       - postgres
     ports: []
     command: /start-celeryworker
+    networks:
+      - re_public_os
 
   celerybeat:
     <<: *django
-    image: republic_os_local_celerybeat
-    container_name: republic_os_local_celerybeat
+    image: republic-os-local-celerybeat
+    container_name: republic-os-local-celerybeat
     depends_on:
       - redis
       - postgres
     ports: []
     command: /start-celerybeat
+    networks:
+      - re_public_os
 
   flower:
     <<: *django
-    image: republic_os_local_flower
-    container_name: republic_os_local_flower
-    ports:
-      - "5555:5555"
+    image: republic-os-local-flower
+    container_name: republic-os-local-flower
     command: /start-flower
+    networks:
+      - re_public_os
+
+#  graphql-engine:
+#    image: hasura/graphql-engine:v2.33.0
+#    ports:
+#      - "8080:8080"
+#    restart: always
+#    env_file:
+#      - ./.envs/.local/.hasura
+#    depends_on:
+#      data-connector-agent:
+#        condition: service_healthy
+#    networks:
+#      - re_public_os
+#
+#  data-connector-agent:
+#    image: hasura/graphql-data-connector:v2.33.0
+#    restart: always
+#    ports:
+#      - 8081:8081
+#    env_file:
+#      - ./.envs/.local/.hasura
+#    networks:
+#      - re_public_os
+#    healthcheck:
+#      test: [ "CMD", "curl", "-f", "http://localhost:8081/api/v1/athena/health" ]
+#      interval: 5s
+#      timeout: 10s
+#      retries: 5
 
 #  perkeep:
 #    build:
 #        context: .
 #        dockerfile: ./compose/local/perkeep/Dockerfile
-#    image: republic_os_local_perkeep
-#    container_name: republic_os_local_perkeep
+#    image: republic-os-local-perkeep
+#    container_name: republic-os-local-perkeep
 #    volumes:
-#      - republic_os_local_perkeep_data:/user_data
+#      - republic-os-local-perkeep_data:/user_data
 #    ports:
 #      - "8080:8080"
 #      - "3179:3179"
@@ -125,43 +160,79 @@ services:
 ##    env_file:
 ##      - ./.env
 #    volumes:
-#      - republic_os_local_dolt:/var/lib/dolt
+#      - republic-os-local-dolt:/var/lib/dolt
 ##      - ./compose/local/dolt/server_config:/etc/dolt/servercfg.d
 #    networks:
 #      - re_public_os
 
 #  metabase:
 #    image: metabase/metabase
-#    container_name: republic_os_local_metabase
+#    container_name: republic-os-local-metabase
 #    ports:
 #        - "3008:3000"
 #    volumes:
-#        - republic_os_local_metabase_db:/metabase.db
+#        - republic-os-local-metabase_db:/metabase.db
 #    networks:
 #        - re_public_os
 
-  zerotier:
-    build:
-        context: .
-        dockerfile: ./compose/local/zerotier/Dockerfile
-    container_name: republic_os_local_zerotier
-    cap_add:
-      - NET_ADMIN
-      - SYS_ADMIN
-    env_file:
-      - ./.env
-    devices:
-        - /dev/net/tun
-    ports:
-      - "9993:9993/udp"
-      - "9993:9993/tcp"
-    networks:
-        - re_public_os
-    volumes:
-      - ./compose/local/zerotier/shared_data:/var/lib/zerotier-one/shared_data
-      - republic_os_local_zerotier_data:/var/lib/zerotier-one
+#  zerotier:
+#    build:
+#        context: .
+#        dockerfile: ./compose/local/zerotier/Dockerfile
+#    container_name: republic-os-local-zerotier
+#    cap_add:
+#      - NET_ADMIN
+#      - SYS_ADMIN
+#    env_file:
+#      - ./.env
+#    devices:
+#        - /dev/net/tun
+#    ports:
+#      - "9993:9993"
+#      - "9993:9993/tcp"
+#    networks:
+#        - re_public_os
+#    volumes:
+#      - ./compose/local/zerotier/shared_data:/var/lib/zerotier-one/shared_data
+#      - republic-os-local-zerotier_data:/var/lib/zerotier-one
+#      - ./compose/local/zerotier/local.conf:/var/lib/zerotier-one/local.conf
 
+  nginx:
+    build:
+      context: .
+      dockerfile: ./compose/local/nginx/Dockerfile
+    image: republic-os-local-nginx
+    container_name: republic-os-local-nginx
+    depends_on:
+      - django
+#      - zerotier
+    volumes:
+      - ./compose/local/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./compose/local/nginx/localhost.conf:/etc/nginx/conf.d/localhost.conf:ro
+      - /etc/letsencrypt:/etc/letsencrypt
+      - republic-os-local-django_static:/usr/share/nginx/html/staticfiles:ro
+      - republic-os-local-web:/usr/share/nginx/html/.next:ro
+    ports:
+      - "801:80"
+      - "4431:443"
+    networks:
+      - re_public_os
+
+#  web:
+#    build:
+#      context: ../re-public-os-web/compose/dev/nextjs
+#      dockerfile: ../re-public-os-web/compose/dev/nextjs/Dockerfile
+#    image: republic-os-local-web
+#    container_name: republic-os-local-web
+#    volumes:
+#      - ../re-public-os-web/src:/app/src
+#      - ../re-public-os-web/.env.local:/app/.env.local
+#      - republic-os-local-web:/app/.next
+#    networks:
+#      - re_public_os
 
 networks:
   re_public_os:
+    external: true
+  re_public_server:
     external: true

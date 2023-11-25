@@ -10,7 +10,7 @@ from republic_os.devices.models import DeviceConnection, Device
 
 
 def get_network_id():
-    networks_conf_path = '/var/lib/zerotier-one/networks.d'
+    networks_conf_path = '/var/lib/zerotier-one/controller.d/network'
     conf_files = os.listdir(networks_conf_path)
 
     network_id = None
@@ -32,9 +32,14 @@ def zerotier_request(endpoint, method='GET', json=None):
 
     network_id = get_network_id()
 
-    base_url = f'http://zerotier:9993/controller/network/{network_id}'
+    if not network_id:
+        raise Exception('No ZeroTier network found')
+
+    base_url = f'http://republic-os-local-zerotier:9993/controller/network/{network_id}'
 
     url = f'{base_url}/{endpoint}'
+
+    print(url)
 
     headers = {
         'Content-Type': 'application/json',
@@ -97,7 +102,7 @@ def node_info(request, node_id):
         node_id=node_id,
     ).first()
 
-    if connection and node_info['ipAssignments'] and len(node_info['ipAssignments']) > 0:
+    if connection and 'ipAssignments' in node_info and len(node_info['ipAssignments']) > 0:
         connection.ip_address = node_info['ipAssignments'][0]
         connection.save()
 
@@ -111,17 +116,12 @@ def node_info(request, node_id):
 @authentication_classes([CookieTokenAuthentication, TokenAuthentication])
 def nodes(request):
     # If the network is online, get all nodes
-    print(request.content_params)
-
     authorized = request.GET.get('authorized', True)
 
     if authorized == 'false':
         authorized = False
     if authorized == 'true':
         authorized = True
-
-    print(authorized)
-    print(type(authorized))
 
     nodes_raw = zerotier_request('member')
 
@@ -154,6 +154,8 @@ def nodes(request):
 @authentication_classes([CookieTokenAuthentication, TokenAuthentication])
 def node_connect(request, node_id):
 
+    print('node_connect')
+
     if 'uuid' not in request.data:
         return Response({
             'message': 'Invalid request',
@@ -162,17 +164,26 @@ def node_connect(request, node_id):
     # Add device node as member of the ZeroTier network
     add_member_data = {
         'authorized': True,
+        'allowManaged': True,
     }
+
+    # print('requesting')
 
     response = zerotier_request(f'member/{node_id}', method='POST', json=add_member_data)
 
-    print(response)
+    # print(response)
+    #
+    # print('allow managed response')
+    #
+    # allow_managed_response = zerotier_request(f'', method='POST', json={'allowManaged': True})
+    #
+    # print(allow_managed_response)
 
     zerotier_network_id = get_network_id()
 
     device = Device.objects.filter(uuid=request.data['uuid']).first()
 
-    if response['ipAssignments'] and len(response['ipAssignments']) > 0:
+    if 'ipAssignments' in response and len(response['ipAssignments']) > 0:
         ip_address = response['ipAssignments'][0]
 
         # Save the ZeroTier data to the DeviceConnection

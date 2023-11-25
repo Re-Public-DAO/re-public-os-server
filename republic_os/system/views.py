@@ -1,5 +1,4 @@
 from django.contrib.auth import get_user_model, login, authenticate
-from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.response import Response
 from rest_framework import permissions, status
@@ -8,6 +7,8 @@ from rest_framework.exceptions import AuthenticationFailed
 
 from republic_os.cookie_token_auth import CookieTokenAuthentication
 from republic_os.utils.parse import get_parse_user, query_parse
+from republic_os import __version__
+from shutil import disk_usage
 
 
 @api_view(['GET'])
@@ -143,4 +144,14 @@ def unlocked(request):
     return Response({
         'message': 'ok',
         'unlocked': user_count > 0,
+    })
+
+
+@api_view(['GET'])
+@authentication_classes([])
+@permission_classes([permissions.AllowAny])
+def get_version(request):
+
+    return Response({
+        'version': __version__,
     })
